@@ -101,6 +101,30 @@ def ensure_sheets():
         ws.update("A1", [PURCHASES_HEADER])
 
 
+def _is_visible(record):
+    """True unless the sheet has an 'en_lista' column that explicitly says
+    no for this row. Rows added before the column existed (or a sheet that
+    never adds it) stay visible, so this is backward compatible."""
+    if "en_lista" not in record:
+        return True
+    raw = str(record.get("en_lista", "")).strip().lower()
+    return raw in ("sí", "si", "true", "1", "x", "yes")
+
+
+def _to_float(value, default=0.0):
+    try:
+        return float(str(value).replace(",", ".").strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_int(value, default=0):
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return default
+
+
 @st.cache_data(ttl=8, show_spinner=False)
 def load_items():
     ss = get_spreadsheet()
@@ -108,19 +132,29 @@ def load_items():
     rows = ws.get_all_records()
     items = []
     for r in rows:
-        try:
-            items.append({
-                "id": str(r["id"]).strip(),
-                "seccion": str(r["seccion"]).strip(),
-                "nombre": str(r["nombre"]).strip(),
-                "detalle": str(r["detalle"]).strip(),
-                "link": str(r["link"]).strip(),
-                "precio": float(r["precio"]),
-                "necesarias": int(r["necesarias"]),
-                "compradas": int(r["compradas"]) if str(r["compradas"]).strip() != "" else 0,
-            })
-        except (KeyError, ValueError):
-            continue
+        item_id = str(r.get("id", "")).strip()
+        if not item_id:
+            continue  # a blank row, or one still missing its id
+        if not _is_visible(r):
+            continue  # marked as internal-only (en_lista != sí)
+
+        precio = _to_float(r.get("precio"))
+        link = str(r.get("link", "")).strip()
+        necesarias = _to_int(r.get("necesarias"), default=1) or 1
+
+        if precio <= 0 or not link:
+            continue  # not ready to be reserved yet (no precio/link todavía)
+
+        items.append({
+            "id": item_id,
+            "seccion": str(r.get("seccion", "")).strip() or "Otros",
+            "nombre": str(r.get("nombre", "")).strip() or item_id,
+            "detalle": str(r.get("detalle", "")).strip(),
+            "link": link,
+            "precio": precio,
+            "necesarias": necesarias,
+            "compradas": _to_int(r.get("compradas"), default=0),
+        })
     return items
 
 
@@ -145,10 +179,17 @@ def save_purchase(name, selection, items_by_id):
     ws_items = ss.worksheet(SHEET_ITEMS)
     ws_purch = ss.worksheet(SHEET_PURCHASES)
 
+    header_row = ws_items.row_values(1)
+    if "compradas" not in header_row:
+        return False, "Falta la columna 'compradas' en APP_datos. Avisa a Alfredo."
+    compradas_col = header_row.index("compradas") + 1
+
     records = ws_items.get_all_records()
     row_by_id = {}
     for idx, r in enumerate(records, start=2):  # row 1 is the header
-        row_by_id[str(r["id"]).strip()] = (idx, r)
+        rid = str(r.get("id", "")).strip()
+        if rid:
+            row_by_id[rid] = (idx, r)
 
     now = dt.datetime.now().isoformat(timespec="seconds")
     purchase_rows = []
@@ -160,8 +201,8 @@ def save_purchase(name, selection, items_by_id):
         if item_id not in row_by_id:
             return False, "Uno de los artículos ya no existe. Recarga la página e inténtalo de nuevo."
         row_idx, record = row_by_id[item_id]
-        necesarias = int(record["necesarias"])
-        compradas = int(record["compradas"]) if str(record["compradas"]).strip() != "" else 0
+        necesarias = _to_int(record.get("necesarias"), default=1) or 1
+        compradas = _to_int(record.get("compradas"), default=0)
         left = necesarias - compradas
         if qty > left:
             nombre = items_by_id.get(item_id, {}).get("nombre", item_id)
@@ -169,7 +210,7 @@ def save_purchase(name, selection, items_by_id):
                 f"Alguien se te ha adelantado con «{nombre}» hace un momento. "
                 "Recarga la página para ver lo que queda disponible."
             )
-        precio = float(record["precio"])
+        precio = _to_float(record.get("precio"))
         purchase_rows.append([now, item_id, name, qty, round(qty * precio, 2)])
         updates.append((row_idx, compradas + qty))
 
@@ -177,7 +218,7 @@ def save_purchase(name, selection, items_by_id):
         return False, "No se ha seleccionado ningún artículo."
 
     for row_idx, new_compradas in updates:
-        ws_items.update_cell(row_idx, ITEMS_HEADER.index("compradas") + 1, new_compradas)
+        ws_items.update_cell(row_idx, compradas_col, new_compradas)
 
     ws_purch.append_rows(purchase_rows)
 
