@@ -95,6 +95,19 @@ def _parse_precio_range(raw):
     return _to_float(nums[0])
 
 
+def _first_line(text):
+    """Se muestra en público solo la primera línea de COMENTARIOS: un
+    comentario corto ('Stokke Flexibath, pack completo'). El resto —notas de
+    investigación, comparativas entre marcas, medidas, recordatorios en
+    mayúsculas— puede ocupar varias líneas en la celda y es solo para
+    vosotros, nunca para la web."""
+    for line in str(text).splitlines():
+        line = line.strip(" -—\t")
+        if line:
+            return line
+    return ""
+
+
 def _extract_necesarias(*texts):
     """Busca un patrón tipo 'x2' o 'x 3' en los comentarios para saber cuántas
     unidades hacen falta. Si no encuentra nada, asume 1."""
@@ -156,12 +169,13 @@ def sync_from_source():
         seccion = cell(row, idx_seccion) or "Otros"
         sub = cell(row, idx_sub)
         coment = cell(row, idx_coment)
-        detalle = " — ".join(p for p in (sub, coment) if p)
+        nombre = f"{elemento} {sub}".strip() if sub else elemento
+        detalle = _first_line(coment)
         item_id = slugify(f"{seccion}-{elemento}-{sub}")
         visible_rows.append({
             "id": item_id,
             "seccion": seccion,
-            "nombre": elemento,
+            "nombre": nombre,
             "detalle": detalle,
             "link": link,
             "precio": _parse_precio_range(precio_raw),
