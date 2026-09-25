@@ -108,13 +108,14 @@ def _first_line(text):
     return ""
 
 
-def _extract_necesarias(*texts):
-    """Busca un patrón tipo 'x2' o 'x 3' en los comentarios para saber cuántas
-    unidades hacen falta. Si no encuentra nada, asume 1."""
-    for text in texts:
-        m = re.search(r"x\s*(\d+)", str(text), re.IGNORECASE)
-        if m:
-            return max(1, int(m.group(1)))
+def _extract_necesarias(comentarios):
+    """Solo cuenta como cantidad cuando la celda de COMENTARIOS es
+    ÚNICAMENTE 'x2', 'x3'... (nada más). Así evitamos confundir medidas
+    como '92 x 67 cm' o '55x55' —que aparecen sueltas dentro de notas más
+    largas— con una cantidad. Si no hay ese patrón exacto, se asume 1."""
+    m = re.fullmatch(r"x\s*(\d+)", str(comentarios).strip(), re.IGNORECASE)
+    if m:
+        return max(1, int(m.group(1)))
     return 1
 
 
@@ -162,16 +163,25 @@ def sync_from_source():
         if cell(row, idx_en_lista).lower() not in _VISIBLE_VALUES:
             continue
         elemento = cell(row, idx_elemento)
+        sub = cell(row, idx_sub)
+        # SUB-ELEMENTO es el producto concreto (p.ej. "Minicuna", "Hamaca",
+        # "Sillita"); ELEMENTO suele ser solo la categoría ("Cuna", "Asiento").
+        # El nombre de cara a la familia es el producto, no la categoría.
+        nombre = sub or elemento
         link = cell(row, idx_link)
         precio_raw = cell(row, idx_precio)
-        if not elemento or not link or not precio_raw:
-            continue  # fila incompleta: la ignoramos hasta que tenga precio y link
+        if not nombre or not link or not precio_raw:
+            continue  # fila incompleta: la ignoramos hasta que tenga nombre, precio y link
         seccion = cell(row, idx_seccion) or "Otros"
-        sub = cell(row, idx_sub)
         coment = cell(row, idx_coment)
-        nombre = f"{elemento} {sub}".strip() if sub else elemento
-        detalle = _first_line(coment)
-        item_id = slugify(f"{seccion}-{elemento}-{sub}")
+        necesarias = _extract_necesarias(coment)
+        # Si el comentario es solo "x2"/"x3" es una cantidad, no una marca o
+        # nota — no tiene sentido enseñarlo como detalle.
+        detalle = "" if necesarias > 1 else _first_line(coment)
+        # La marca/nota (primera línea del comentario) entra en el id para
+        # no confundir dos productos distintos que comparten sección,
+        # elemento y sub-elemento (p.ej. dos cunas distintas por decidir).
+        item_id = slugify(f"{seccion}-{elemento}-{sub}-{_first_line(coment)}")
         visible_rows.append({
             "id": item_id,
             "seccion": seccion,
@@ -179,7 +189,7 @@ def sync_from_source():
             "detalle": detalle,
             "link": link,
             "precio": _parse_precio_range(precio_raw),
-            "necesarias": _extract_necesarias(coment, sub),
+            "necesarias": necesarias,
         })
 
     ws_items = ss.worksheet(SHEET_ITEMS)
