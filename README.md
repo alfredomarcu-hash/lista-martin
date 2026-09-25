@@ -4,9 +4,14 @@ Web pública (sin cuenta ni inicio de sesión para quien la visita) que lee y
 guarda las selecciones directamente en tu Google Sheet "Compras Martín",
 usando una cuenta de servicio de Google — el mismo patrón que la Mundoporra.
 
-La web crea automáticamente, la primera vez que arranca, dos pestañas nuevas
-en tu Sheet:
-- `APP_datos`: los artículos, con sus unidades necesarias/compradas.
+Tú solo editas **`Hoja 1`** (tu hoja de trabajo de siempre, con todo lo que
+necesitáis para Martín, incluidas cosas internas como botiquín o pañales que
+no queréis pedir a la familia). La web crea y mantiene sola, a partir de ahí,
+dos pestañas más:
+- `APP_datos`: solo los artículos marcados como públicos, con sus unidades
+  necesarias/compradas. **No la edites a mano** — se regenera sola cada vez
+  que alguien abre la web, leyendo `Hoja 1`. Cualquier cambio manual que
+  hagas ahí se puede sobrescribir en la siguiente sincronización.
 - `APP_compras`: el registro de quién ha comprado qué (solo lo veis tú y tu
   pareja, abriendo el Sheet — la web pública nunca lo muestra).
 
@@ -59,8 +64,31 @@ Abre tu Google Sheet normal y ve a la pestaña `APP_compras`. Ahí verás
 fecha, artículo, nombre de quien lo compró, cantidad e importe — información
 que la web pública nunca muestra.
 
-## Actualizar la lista de artículos
+## Cómo decidir qué aparece en la lista pública
 
-Edita directamente la pestaña `APP_datos` de tu Sheet (añadir filas, cambiar
-precios, etc.). La web las recoge solas, con un pequeño retraso de hasta 8
-segundos.
+Todo pasa por `Hoja 1`, tu hoja de siempre (columnas SECCIÓN, ELEMENTO,
+SUB-ELEMENTO, COMENTARIOS, LINK PRODUCTO, PRECIO, QUIÉN).
+
+1. Añade una columna nueva con la cabecera **`EN_LISTA`** (en cualquier
+   posición; el nombre de la cabecera es lo único que importa, no el orden).
+2. En esa columna, escribe **`sí`** en las filas que quieres que vea la
+   familia (cuna, hamaca, silla del coche...) y **`no`**, o déjala en blanco,
+   en las que son solo para vosotros (botiquín, pañales...).
+3. Para que una fila aparezca en la web hace falta además que tenga
+   **ELEMENTO**, **LINK PRODUCTO** y **PRECIO** rellenos — si falta alguno,
+   la fila se ignora hasta que la completes, aunque pongas `sí`.
+4. Si en COMENTARIOS o en SUB-ELEMENTO escribes algo como `x2` o `x3`, la web
+   entiende que hacen falta 2 o 3 unidades de ese artículo (por ejemplo,
+   "sábanas x2"). Si no pones nada, asume que hace falta 1.
+5. Si el PRECIO es un rango (por ejemplo `885 - 935`), la web se queda con el
+   primer número.
+
+Cada vez que alguien abre la web, esta relee `Hoja 1`, actualiza `APP_datos`
+automáticamente (como mucho una vez cada 30 segundos) y refleja los cambios
+— nunca hace falta tocar `APP_datos` a mano. Las unidades ya compradas
+(`compradas`) nunca se pierden ni se reinician al sincronizar, aunque
+cambies el precio, el nombre o quites y vuelvas a poner el `sí`.
+
+Si quitas el `sí` de una fila que ya tenía compras, esa fila se oculta de la
+web pero no se borra de `APP_datos`, así que el historial de quién la compró
+sigue intacto en `APP_compras`.

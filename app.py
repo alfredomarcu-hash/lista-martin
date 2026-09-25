@@ -5,6 +5,8 @@ mediante una cuenta de servicio (igual que la Mundoporra).
 """
 
 import datetime as dt
+import re
+import unicodedata
 
 import gspread
 import streamlit as st
@@ -18,58 +20,20 @@ BABY_NAME = "Martín"
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-SHEET_ITEMS = "APP_datos"
+SOURCE_SHEET = "Hoja 1"  # la hoja de trabajo original de Alfredo: fuente de verdad
+SHEET_ITEMS = "APP_datos"  # generada y mantenida automáticamente por la app
 SHEET_PURCHASES = "APP_compras"
 
 ITEMS_HEADER = [
-    "id", "seccion", "nombre", "detalle", "link", "precio", "necesarias", "compradas",
+    "id", "seccion", "nombre", "detalle", "link", "precio", "necesarias", "compradas", "en_lista",
 ]
 PURCHASES_HEADER = ["fecha", "item_id", "nombre_comprador", "cantidad", "importe"]
 
 SECTION_ORDER = ["Dormitorio", "Baño", "Salón", "Coche", "Paseo", "Textil", "Lactancia"]
 
-# Semilla inicial: se usa solo la primera vez, si la pestaña APP_datos no existe.
-SEED_ITEMS = [
-    ["minicuna", "Dormitorio", "Minicuna Jané", "Colchón, funda nórdica y cojín incluidos",
-     "https://janeworld.com/cunas-colecho/801993-103052-cuna-colecho-baby-side.html#/761424-color-botanic",
-     199, 1, 0],
-    ["saco-dormir", "Dormitorio", "Saco de dormir TOG 2.5", "Molis&Co, con mangas, ideal para invierno",
-     "https://molisandco.com/products/saco-de-dormir-bebe-con-mangas-winter-animals-tog-2-5",
-     37, 2, 0],
-    ["almohada-antiplagio", "Dormitorio", "Almohada antiplagiocefalia", "Por si hiciera falta más adelante",
-     "https://koalababycare.com/es/collections/newborn-pillows",
-     30, 1, 0],
-    ["banera", "Baño", "Bañera con patas y soporte", "Stokke Flexibath, pack completo",
-     "https://www.stokke.com/ESP/es-es/bano/stokke-flexibath/flexibath-newborn-stand-bundle.html?5319_0=pid%3D531910%26color%3D561",
-     119, 1, 0],
-    ["hamaca", "Salón", "Hamaca BabyBjörn Bliss", "Tejido 3D Jersey, beige claro",
-     "https://www.babybjorn.es/productos/hamacas/hamaca-bliss/beige-claro-jersey-3d-gris-claro/",
-     229, 1, 0],
-    ["trona", "Salón", "Trona Stokke Tripp Trapp", "Pack recién nacido completo",
-     "https://www.stokke.com/ESP/es-es/tronas/tripp-trapp/tripp-trapp-newborn-complete.html",
-     379, 1, 0],
-    ["sillita-coche", "Coche", "Silla de coche BeSafe Beyond", "Presupuesto de Cucuna (Terrassa), desde 885 €",
-     "https://www.besafe.com/es/asientos-de-coche/recien-nacidos-y-bebes/beyond-2-360-b/",
-     885, 1, 0],
-    ["carro", "Paseo", "Carro Inglesina Aptica", "Sistema 2 en 1, con base para casa",
-     "https://www.inglesina.com/es-es/products/carritos-bebe-3-piezas-aptica-duo?srsltid=AfmBOorUIDMpu4ah5aZHDSEOUNXnGFE7W_IYfPoOYaJPmad_9U2cZSC5&variant=57481760178560",
-     949, 1, 0],
-    ["mochila-porteo", "Paseo", "Mochila de porteo Ergobaby", "Omni Deluxe, algodón, color Pearl Grey",
-     "https://ergobaby.com/es-es/products/mochila-portabebes-omni-deluxe?variant=51332179984672",
-     198, 1, 0],
-    ["manta", "Textil", "Manta de punto 100% algodón", "Zara Home",
-     "https://www.zarahome.com/es/manta-bebe-punto-l43699004?ct=true&categoryId=1020569688&pelement=507772437&colorId=999",
-     29.90, 1, 0],
-    ["muselinas", "Textil", "Pack de muselinas 100% algodón", "55x55 cm, Zara Home. Hacen falta 2 packs",
-     "https://www.zarahome.com/es/pack-muselinas-bebe-multicolor-pack-de-3-l41601767?srch=true&searchTerm=muselina&pelement=507776346&colorId=500",
-     9.99, 2, 0],
-    ["tetinas", "Lactancia", "Tetinas Philips Avent", "Natural Response, flujo 1, pack de 2",
-     "https://www.amazon.es/dp/B0BWFMMPPC/?coliid=I2D6GVD0B0H2XC&colid=1EPKH89AFHP94&ref_=list_c_wl_lv_ov_lig_dp_it&th=1",
-     6.99, 1, 0],
-    ["bolsas-esterilizar", "Lactancia", "Bolsas para esterilizar al microondas", "Philips Avent, 20 usos por bolsa",
-     "https://www.amazon.es/dp/B00DUEFZK8/?coliid=I3LJUT4PTFHWOV&colid=1EPKH89AFHP94&ref_=list_c_wl_lv_ov_lig_dp_it&th=1",
-     12.5, 1, 0],
-]
+# APP_datos ya no se siembra a mano: se genera y mantiene sola a partir de
+# "Hoja 1" (ver sync_from_source más abajo). Si la pestaña no existe todavía,
+# se crea vacía, solo con la cabecera.
 
 # --------------------------------------------------------------------------
 # Conexión con Google Sheets
@@ -94,11 +58,184 @@ def ensure_sheets():
 
     if SHEET_ITEMS not in titles:
         ws = ss.add_worksheet(title=SHEET_ITEMS, rows=100, cols=len(ITEMS_HEADER))
-        ws.update("A1", [ITEMS_HEADER] + SEED_ITEMS)
+        ws.update("A1", [ITEMS_HEADER])
 
     if SHEET_PURCHASES not in titles:
         ws = ss.add_worksheet(title=SHEET_PURCHASES, rows=500, cols=len(PURCHASES_HEADER))
         ws.update("A1", [PURCHASES_HEADER])
+
+
+def _normalize_header(h):
+    """'SECCIÓN' -> 'SECCION', 'LINK PRODUCTO' -> 'LINK_PRODUCTO', etc. Lets us
+    match Hoja 1's headers without worrying about acentos/espacios/mayúsculas."""
+    h = str(h).strip()
+    h = unicodedata.normalize("NFKD", h).encode("ascii", "ignore").decode("ascii")
+    h = h.upper()
+    h = re.sub(r"[^A-Z0-9]+", "_", h).strip("_")
+    return h
+
+
+def slugify(text, max_len=60):
+    """Genera un id estable y legible a partir de texto libre (sección +
+    nombre), para poder actualizar siempre la misma fila en APP_datos aunque
+    se repita la sincronización."""
+    text = str(text).strip()
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+    return (text[:max_len].strip("-")) or "articulo"
+
+
+def _parse_precio_range(raw):
+    """'885 - 935' -> 885.0. También admite '9,99' o '9.99'."""
+    raw = str(raw).strip()
+    nums = re.findall(r"\d+(?:[.,]\d+)?", raw)
+    if not nums:
+        return 0.0
+    return _to_float(nums[0])
+
+
+def _extract_necesarias(*texts):
+    """Busca un patrón tipo 'x2' o 'x 3' en los comentarios para saber cuántas
+    unidades hacen falta. Si no encuentra nada, asume 1."""
+    for text in texts:
+        m = re.search(r"x\s*(\d+)", str(text), re.IGNORECASE)
+        if m:
+            return max(1, int(m.group(1)))
+    return 1
+
+
+_VISIBLE_VALUES = ("sí", "si", "true", "1", "x", "yes")
+
+
+def sync_from_source():
+    """Lee 'Hoja 1' (la fuente de verdad de Alfredo), se queda con las filas
+    marcadas como visibles en su columna EN_LISTA, y actualiza APP_datos para
+    que coincida — sin tocar nunca 'compradas' de lo que ya existía."""
+    ss = get_spreadsheet()
+    titles = [ws.title for ws in ss.worksheets()]
+    if SOURCE_SHEET not in titles:
+        return  # nada que sincronizar todavía
+
+    ws_src = ss.worksheet(SOURCE_SHEET)
+    src_values = ws_src.get_all_values()
+    if not src_values:
+        return
+
+    header = [_normalize_header(h) for h in src_values[0]]
+
+    def col_index(*names):
+        for name in names:
+            if name in header:
+                return header.index(name)
+        return None
+
+    idx_seccion = col_index("SECCION")
+    idx_elemento = col_index("ELEMENTO")
+    idx_sub = col_index("SUB_ELEMENTO")
+    idx_coment = col_index("COMENTARIOS")
+    idx_link = col_index("LINK_PRODUCTO")
+    idx_precio = col_index("PRECIO")
+    idx_en_lista = col_index("EN_LISTA")
+
+    if idx_en_lista is None:
+        return  # Alfredo aún no ha añadido la columna EN_LISTA en Hoja 1
+
+    def cell(row, idx):
+        return row[idx].strip() if idx is not None and idx < len(row) else ""
+
+    visible_rows = []
+    for row in src_values[1:]:
+        if cell(row, idx_en_lista).lower() not in _VISIBLE_VALUES:
+            continue
+        elemento = cell(row, idx_elemento)
+        link = cell(row, idx_link)
+        precio_raw = cell(row, idx_precio)
+        if not elemento or not link or not precio_raw:
+            continue  # fila incompleta: la ignoramos hasta que tenga precio y link
+        seccion = cell(row, idx_seccion) or "Otros"
+        sub = cell(row, idx_sub)
+        coment = cell(row, idx_coment)
+        detalle = " — ".join(p for p in (sub, coment) if p)
+        item_id = slugify(f"{seccion}-{elemento}-{sub}")
+        visible_rows.append({
+            "id": item_id,
+            "seccion": seccion,
+            "nombre": elemento,
+            "detalle": detalle,
+            "link": link,
+            "precio": _parse_precio_range(precio_raw),
+            "necesarias": _extract_necesarias(coment, sub),
+        })
+
+    ws_items = ss.worksheet(SHEET_ITEMS)
+    items_values = ws_items.get_all_values()
+    if not items_values:
+        ws_items.update("A1", [ITEMS_HEADER])
+        items_values = [ITEMS_HEADER]
+
+    header_now = list(items_values[0])
+    missing_cols = [c for c in ITEMS_HEADER if c not in header_now]
+    if missing_cols:
+        header_now += missing_cols
+        ws_items.update("A1", [header_now])
+
+    body_rows = items_values[1:]
+    existing_by_id = {}
+    for i, row in enumerate(body_rows, start=2):  # row 1 es la cabecera
+        rowdict = {header_now[j]: (row[j] if j < len(row) else "") for j in range(len(header_now))}
+        rid = rowdict.get("id", "").strip()
+        if rid:
+            existing_by_id[rid] = (i, rowdict)
+
+    def a1(row_idx, col_name):
+        return gspread.utils.rowcol_to_a1(row_idx, header_now.index(col_name) + 1)
+
+    cell_updates = []
+    new_rows = []
+    visible_ids = set()
+
+    for item in visible_rows:
+        visible_ids.add(item["id"])
+        if item["id"] in existing_by_id:
+            row_idx, _ = existing_by_id[item["id"]]
+            for field in ("seccion", "nombre", "detalle", "link", "precio", "necesarias"):
+                cell_updates.append({"range": a1(row_idx, field), "values": [[item[field]]]})
+            cell_updates.append({"range": a1(row_idx, "en_lista"), "values": [["sí"]]})
+        else:
+            new_row = [""] * len(header_now)
+            new_row[header_now.index("id")] = item["id"]
+            new_row[header_now.index("seccion")] = item["seccion"]
+            new_row[header_now.index("nombre")] = item["nombre"]
+            new_row[header_now.index("detalle")] = item["detalle"]
+            new_row[header_now.index("link")] = item["link"]
+            new_row[header_now.index("precio")] = item["precio"]
+            new_row[header_now.index("necesarias")] = item["necesarias"]
+            new_row[header_now.index("compradas")] = 0
+            new_row[header_now.index("en_lista")] = "sí"
+            new_rows.append(new_row)
+
+    # Lo que ya no está marcado como visible en Hoja 1 se oculta (no se borra,
+    # para no perder el historial de compras de esa fila).
+    for rid, (row_idx, rowdict) in existing_by_id.items():
+        if rid in visible_ids:
+            continue
+        current = str(rowdict.get("en_lista", "")).strip().lower()
+        if current in _VISIBLE_VALUES:
+            cell_updates.append({"range": a1(row_idx, "en_lista"), "values": [["no"]]})
+
+    if cell_updates:
+        ws_items.batch_update(cell_updates)
+    if new_rows:
+        ws_items.append_rows(new_rows)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def sync_from_source_cached():
+    """Limita la sincronización a como mucho una vez cada 30s en todo el
+    servidor (no por visitante), para no agotar la cuota de la API de Sheets."""
+    sync_from_source()
+    return dt.datetime.now().isoformat()
 
 
 def _is_visible(record):
@@ -264,6 +401,7 @@ if "banner" not in st.session_state:
     st.session_state.banner = None
 
 ensure_sheets()
+sync_from_source_cached()
 items = load_items()
 items_by_id = {it["id"]: it for it in items}
 
