@@ -456,6 +456,11 @@ st.markdown(
     "4. Haznos un ingreso por el importe al número de cuenta "
     "**ES70 2095 5308 3091 2564 9315**. ¡Y ya está!"
 )
+st.markdown(
+    "Para facilitar la recepción de los artículos en casa y por comodidad, "
+    "las compras las haremos nosotros. Os agradecemos muchísimo vuestra "
+    "aportación y os prometemos enviaros una foto con lo que nos habéis regalado. 💛"
+)
 
 if st.session_state.banner:
     b = st.session_state.banner
