@@ -460,65 +460,99 @@ if st.session_state.banner:
         st.session_state.banner = None
         st.rerun()
 
-groups, total_visible = group_by_section(items)
+def render_item(item):
+    """Dibuja la tarjeta de un artículo y su control para regalarlo."""
+    left = remaining(item)
+    nombre_html = html.escape(item["nombre"])
+    # La descripción puede tener varias líneas (p.ej. "Incluye: ...");
+    # se escapan y los saltos de línea se convierten en <br>.
+    detalle_html = html.escape(item["detalle"]).replace("\n", "<br>")
+    necesita = item["necesarias"]
+    cantidad_pill = (
+        f'<span class="item-pill">Faltan {left} de {necesita}</span>'
+        if necesita > 1 else
+        f'<span class="item-pill">Falta{"n" if left != 1 else ""} {left}</span>'
+    )
+    # Se construye el HTML uniendo solo las partes que existen, sin sangría:
+    # así, cuando falta la descripción o el enlace, no queda ninguna línea
+    # vacía (que Streamlit interpretaría como un bloque de código gris).
+    card = ['<div class="item-card">', cantidad_pill,
+            f'<h4 style="margin:0 0 2px 0;">{nombre_html}</h4>']
+    if item["detalle"]:
+        card.append(f'<p style="color:#5C6B62; margin:0 0 8px 0;">{detalle_html}</p>')
+    card.append(
+        f'<div class="item-price">{item["precio"]:.2f} € '
+        '<span style="font-size:0.8rem; font-weight:600; color:#5C6B62;">/ unidad</span></div>'
+    )
+    if item["link"]:
+        card.append(
+            f'<a href="{html.escape(item["link"])}" target="_blank">Ver producto ↗</a>'
+        )
+    card.append("</div>")
+    with st.container():
+        st.markdown("".join(card), unsafe_allow_html=True)
+        iid = item["id"]
+        selected = iid in st.session_state.selection
+        if necesita > 1:
+            # Varias unidades: primero un botón para empezar a regalar; una vez
+            # dentro, un selector de cuántas y un botón para quitar.
+            if selected:
+                qty = st.number_input(
+                    f"¿Cuántas unidades regalas? (quedan {left})",
+                    min_value=1, max_value=left,
+                    value=min(st.session_state.selection.get(iid, 1), left),
+                    key=f"qty_{iid}",
+                )
+                st.session_state.selection[iid] = qty
+                if st.button("Quitar", key=f"rm_{iid}", use_container_width=True):
+                    st.session_state.selection.pop(iid, None)
+                    st.rerun()
+            else:
+                if st.button("🎁 Quiero regalar esto", type="primary",
+                             key=f"add_{iid}", use_container_width=True):
+                    st.session_state.selection[iid] = 1
+                    st.rerun()
+        else:
+            # Una sola unidad: un único botón que alterna seleccionar / quitar.
+            if selected:
+                if st.button("✓ Vas a regalar esto · pulsa para quitar",
+                             key=f"btn_{iid}", use_container_width=True):
+                    st.session_state.selection.pop(iid, None)
+                    st.rerun()
+            else:
+                if st.button("🎁 Quiero regalar esto", type="primary",
+                             key=f"btn_{iid}", use_container_width=True):
+                    st.session_state.selection[iid] = 1
+                    st.rerun()
 
-if total_visible == 0:
+
+visible_items = [it for it in items if remaining(it) > 0]
+
+if not visible_items:
     st.info(f"¡Ya está todo reservado! Gracias a todos, no queda ningún artículo pendiente para {BABY_NAME}.")
 else:
-    for seccion, section_items in groups:
-        st.subheader(seccion)
-        for item in section_items:
-            left = remaining(item)
-            nombre_html = html.escape(item["nombre"])
-            # La descripción puede tener varias líneas (p.ej. "Incluye: ...");
-            # se escapan y los saltos de línea se convierten en <br>.
-            detalle_html = html.escape(item["detalle"]).replace("\n", "<br>")
-            necesita = item["necesarias"]
-            cantidad_pill = (
-                f'<span class="item-pill">Faltan {left} de {necesita}</span>'
-                if necesita > 1 else
-                f'<span class="item-pill">Falta{"n" if left != 1 else ""} {left}</span>'
-            )
-            # Se construye el HTML uniendo solo las partes que existen, sin
-            # sangría: así, cuando falta la descripción o el enlace, no queda
-            # ninguna línea vacía (que Streamlit interpretaría como un bloque
-            # de código gris, el "campo vacío" que parecía un error).
-            card = ['<div class="item-card">', cantidad_pill,
-                    f'<h4 style="margin:0 0 2px 0;">{nombre_html}</h4>']
-            if item["detalle"]:
-                card.append(f'<p style="color:#5C6B62; margin:0 0 8px 0;">{detalle_html}</p>')
-            card.append(
-                f'<div class="item-price">{item["precio"]:.2f} € '
-                '<span style="font-size:0.8rem; font-weight:600; color:#5C6B62;">/ unidad</span></div>'
-            )
-            if item["link"]:
-                card.append(
-                    f'<a href="{html.escape(item["link"])}" target="_blank">Ver producto ↗</a>'
-                )
-            card.append("</div>")
-            with st.container():
-                st.markdown("".join(card), unsafe_allow_html=True)
-                if item["necesarias"] > 1:
-                    qty = st.number_input(
-                        "¿Cuántas unidades quieres regalar?",
-                        min_value=0, max_value=left,
-                        value=st.session_state.selection.get(item["id"], 0),
-                        key=f"qty_{item['id']}",
-                    )
-                    if qty > 0:
-                        st.session_state.selection[item["id"]] = qty
-                    else:
-                        st.session_state.selection.pop(item["id"], None)
-                elif item["id"] in st.session_state.selection:
-                    if st.button("✓ Vas a regalar esto · pulsa para quitar",
-                                 key=f"btn_{item['id']}", use_container_width=True):
-                        st.session_state.selection.pop(item["id"], None)
-                        st.rerun()
-                else:
-                    if st.button("🎁 Quiero regalar esto", type="primary",
-                                 key=f"btn_{item['id']}", use_container_width=True):
-                        st.session_state.selection[item["id"]] = 1
-                        st.rerun()
+    opciones_orden = ["Por sección", "Más baratos primero", "Más caros primero"]
+    if hasattr(st, "segmented_control"):
+        orden = st.segmented_control(
+            "Ordenar", opciones_orden, default="Por sección",
+            key="orden", label_visibility="collapsed",
+        ) or "Por sección"
+    else:
+        orden = st.radio(
+            "Ordenar", opciones_orden, horizontal=True,
+            key="orden", label_visibility="collapsed",
+        )
+
+    if orden == "Por sección":
+        groups, _ = group_by_section(items)
+        for seccion, section_items in groups:
+            st.subheader(seccion)
+            for item in section_items:
+                render_item(item)
+    else:
+        reverse = orden == "Más caros primero"
+        for item in sorted(visible_items, key=lambda it: it["precio"], reverse=reverse):
+            render_item(item)
 
 selection = {k: v for k, v in st.session_state.selection.items() if v > 0}
 sel_count = sum(selection.values())
