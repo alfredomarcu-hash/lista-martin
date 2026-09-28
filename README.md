@@ -66,29 +66,35 @@ que la web pública nunca muestra.
 
 ## Cómo decidir qué aparece en la lista pública
 
-Todo pasa por `Hoja 1`, tu hoja de siempre (columnas SECCIÓN, ELEMENTO,
-SUB-ELEMENTO, COMENTARIOS, LINK PRODUCTO, PRECIO, QUIÉN).
+Todo pasa por `Hoja 1`, tu hoja de siempre. La web usa estas columnas
+(las localiza por el nombre de la cabecera, sin importar el orden):
 
-1. Añade una columna nueva con la cabecera **`EN_LISTA`** (en cualquier
-   posición; el nombre de la cabecera es lo único que importa, no el orden).
-2. En esa columna, escribe **`sí`** en las filas que quieres que vea la
-   familia (cuna, hamaca, silla del coche...) y **`no`**, o déjala en blanco,
-   en las que son solo para vosotros (botiquín, pañales...).
-3. Para que una fila aparezca en la web hace falta además que tenga
-   **ELEMENTO**, **LINK PRODUCTO** y **PRECIO** rellenos — si falta alguno,
-   la fila se ignora hasta que la completes, aunque pongas `sí`.
-4. Si en COMENTARIOS o en SUB-ELEMENTO escribes algo como `x2` o `x3`, la web
-   entiende que hacen falta 2 o 3 unidades de ese artículo (por ejemplo,
-   "sábanas x2"). Si no pones nada, asume que hace falta 1.
-5. Si el PRECIO es un rango (por ejemplo `885 - 935`), la web se queda con el
-   primer número.
+- **SECCIÓN**: agrupa los artículos; solo se muestra como encabezado.
+- **SUB-ELEMENTO**: es el nombre que ve la familia (p.ej. "Hamaca",
+  "Minicuna"). Si está vacío, usa ELEMENTO.
+- **DESCRIPCIÓN**: el texto que se muestra bajo el nombre. Puede tener
+  varias líneas (p.ej. "Incluye: 3 bodies, 2 pijamas...").
+- **LINK PRODUCTO**: opcional. Si es una URL, aparece el botón "Ver
+  producto"; si lo dejas vacío (un pack o una idea sin página), el
+  artículo se muestra igual, sin enlace.
+- **PRECIO**: obligatorio. Si es un rango (p.ej. `885 - 935`) se queda
+  con el primer número.
+- **CANTIDAD**: cuántas unidades hacen falta (1 por defecto). Si pones 2,
+  la web muestra "Faltan 2 de 2" y varias personas pueden repartírselas.
+- **EN LISTA**: escribe **`sí`** en lo que quieres que vea la familia y
+  **`no`** (o vacío) en lo que es solo para vosotros.
 
-Cada vez que alguien abre la web, esta relee `Hoja 1`, actualiza `APP_datos`
-automáticamente (como mucho una vez cada 30 segundos) y refleja los cambios
-— nunca hace falta tocar `APP_datos` a mano. Las unidades ya compradas
-(`compradas`) nunca se pierden ni se reinician al sincronizar, aunque
-cambies el precio, el nombre o quites y vuelvas a poner el `sí`.
+La columna **`COMENTARIOS (no incluir en Claude)`** es privada: la web
+**nunca** la lee ni la muestra. Ahí podéis dejar notas internas
+(comparativas, recordatorios, "no comprar en...") con total tranquilidad.
 
-Si quitas el `sí` de una fila que ya tenía compras, esa fila se oculta de la
-web pero no se borra de `APP_datos`, así que el historial de quién la compró
-sigue intacto en `APP_compras`.
+Para que una fila aparezca hace falta: **SUB-ELEMENTO** (o ELEMENTO),
+**PRECIO** y **EN LISTA = sí**. Si falta el nombre o el precio, se ignora
+hasta que lo completes.
+
+Cada vez que alguien abre la web, esta relee `Hoja 1` y reconstruye
+`APP_datos` automáticamente (como mucho una vez cada 30 segundos), dejándola
+como un reflejo limpio de la lista pública — nunca hace falta tocar
+`APP_datos` a mano. Las unidades ya compradas se conservan al sincronizar, y
+el historial completo de quién ha comprado qué vive aparte en `APP_compras`,
+así que reconstruir `APP_datos` no pierde nunca esa información.

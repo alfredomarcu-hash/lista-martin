@@ -5,6 +5,7 @@ mediante una cuenta de servicio (igual que la Mundoporra).
 """
 
 import datetime as dt
+import html
 import re
 import unicodedata
 
@@ -29,7 +30,10 @@ ITEMS_HEADER = [
 ]
 PURCHASES_HEADER = ["fecha", "item_id", "nombre_comprador", "cantidad", "importe"]
 
-SECTION_ORDER = ["Dormitorio", "Baño", "Salón", "Coche", "Paseo", "Textil", "Lactancia"]
+SECTION_ORDER = [
+    "Dormitorio", "Textil", "Baño", "Lactancia", "Alimentación",
+    "Salón", "Paseo", "Coche", "Estimulación sensorial",
+]
 
 # APP_datos ya no se siembra a mano: se genera y mantiene sola a partir de
 # "Hoja 1" (ver sync_from_source más abajo). Si la pestaña no existe todavía,
@@ -58,11 +62,11 @@ def ensure_sheets():
 
     if SHEET_ITEMS not in titles:
         ws = ss.add_worksheet(title=SHEET_ITEMS, rows=100, cols=len(ITEMS_HEADER))
-        ws.update("A1", [ITEMS_HEADER])
+        ws.update([ITEMS_HEADER], "A1")
 
     if SHEET_PURCHASES not in titles:
         ws = ss.add_worksheet(title=SHEET_PURCHASES, rows=500, cols=len(PURCHASES_HEADER))
-        ws.update("A1", [PURCHASES_HEADER])
+        ws.update([PURCHASES_HEADER], "A1")
 
 
 def _normalize_header(h):
@@ -96,27 +100,13 @@ def _parse_precio_range(raw):
 
 
 def _first_line(text):
-    """Se muestra en público solo la primera línea de COMENTARIOS: un
-    comentario corto ('Stokke Flexibath, pack completo'). El resto —notas de
-    investigación, comparativas entre marcas, medidas, recordatorios en
-    mayúsculas— puede ocupar varias líneas en la celda y es solo para
-    vosotros, nunca para la web."""
+    """Primera línea no vacía de un texto (se usa para el id y como nombre
+    de reserva cuando falta el sub-elemento)."""
     for line in str(text).splitlines():
         line = line.strip(" -—\t")
         if line:
             return line
     return ""
-
-
-def _extract_necesarias(comentarios):
-    """Solo cuenta como cantidad cuando la celda de COMENTARIOS es
-    ÚNICAMENTE 'x2', 'x3'... (nada más). Así evitamos confundir medidas
-    como '92 x 67 cm' o '55x55' —que aparecen sueltas dentro de notas más
-    largas— con una cantidad. Si no hay ese patrón exacto, se asume 1."""
-    m = re.fullmatch(r"x\s*(\d+)", str(comentarios).strip(), re.IGNORECASE)
-    if m:
-        return max(1, int(m.group(1)))
-    return 1
 
 
 _VISIBLE_VALUES = ("sí", "si", "true", "1", "x", "yes")
@@ -147,46 +137,60 @@ def sync_from_source():
     idx_seccion = col_index("SECCION")
     idx_elemento = col_index("ELEMENTO")
     idx_sub = col_index("SUB_ELEMENTO")
-    idx_coment = col_index("COMENTARIOS")
+    idx_descripcion = col_index("DESCRIPCION")
     idx_link = col_index("LINK_PRODUCTO")
     idx_precio = col_index("PRECIO")
     idx_en_lista = col_index("EN_LISTA")
+    idx_cantidad = col_index("CANTIDAD")
+    # Nota: la columna "COMENTARIOS (no incluir en Claude)" es privada de
+    # Alfredo y su pareja. No se lee nunca: no se usa ni para el detalle,
+    # ni para el id, ni para nada — solo se muestra DESCRIPCIÓN.
 
     if idx_en_lista is None:
-        return  # Alfredo aún no ha añadido la columna EN_LISTA en Hoja 1
+        return  # Alfredo aún no ha añadido la columna EN LISTA en Hoja 1
 
     def cell(row, idx):
         return row[idx].strip() if idx is not None and idx < len(row) else ""
 
     visible_rows = []
+    seen_ids = {}
     for row in src_values[1:]:
         if cell(row, idx_en_lista).lower() not in _VISIBLE_VALUES:
             continue
         elemento = cell(row, idx_elemento)
         sub = cell(row, idx_sub)
+        descripcion = cell(row, idx_descripcion)
         # SUB-ELEMENTO es el producto concreto (p.ej. "Minicuna", "Hamaca",
         # "Sillita"); ELEMENTO suele ser solo la categoría ("Cuna", "Asiento").
         # El nombre de cara a la familia es el producto, no la categoría.
-        nombre = sub or elemento
+        nombre = sub or elemento or _first_line(descripcion)
         link = cell(row, idx_link)
         precio_raw = cell(row, idx_precio)
-        if not nombre or not link or not precio_raw:
-            continue  # fila incompleta: la ignoramos hasta que tenga nombre, precio y link
+        # El link es OPCIONAL: algunos regalos son "packs" o ideas sin una
+        # página concreta (canastillas de ropa por edad, sets de estimulación).
+        # Basta con que tengan nombre, precio y estén marcados en la lista.
+        if not nombre or not precio_raw:
+            continue
         seccion = cell(row, idx_seccion) or "Otros"
-        coment = cell(row, idx_coment)
-        necesarias = _extract_necesarias(coment)
-        # Si el comentario es solo "x2"/"x3" es una cantidad, no una marca o
-        # nota — no tiene sentido enseñarlo como detalle.
-        detalle = "" if necesarias > 1 else _first_line(coment)
-        # La marca/nota (primera línea del comentario) entra en el id para
-        # no confundir dos productos distintos que comparten sección,
-        # elemento y sub-elemento (p.ej. dos cunas distintas por decidir).
-        item_id = slugify(f"{seccion}-{elemento}-{sub}-{_first_line(coment)}")
+        necesarias = max(1, _to_int(cell(row, idx_cantidad), default=1))
+        # El id se construye con la primera línea de la DESCRIPCIÓN (la marca)
+        # y el precio para que dos productos con el mismo sub-elemento (p.ej.
+        # varias "Muselinas" de marcas o tamaños distintos) no colisionen.
+        base_id = slugify(f"{seccion}-{elemento}-{sub}-{_first_line(descripcion)}-{precio_raw}")
+        item_id = base_id
+        if item_id in seen_ids:
+            seen_ids[base_id] += 1
+            item_id = f"{base_id}-{seen_ids[base_id]}"
+        else:
+            seen_ids[base_id] = 1
+        # Solo enlazamos si es una URL de verdad (no una marca suelta como
+        # "Mustela" que Alfredo pueda dejar en la casilla del link).
+        link = link if link.lower().startswith("http") else ""
         visible_rows.append({
             "id": item_id,
             "seccion": seccion,
             "nombre": nombre,
-            "detalle": detalle,
+            "detalle": descripcion,
             "link": link,
             "precio": _parse_precio_range(precio_raw),
             "necesarias": necesarias,
@@ -194,64 +198,42 @@ def sync_from_source():
 
     ws_items = ss.worksheet(SHEET_ITEMS)
     items_values = ws_items.get_all_values()
-    if not items_values:
-        ws_items.update("A1", [ITEMS_HEADER])
-        items_values = [ITEMS_HEADER]
 
-    header_now = list(items_values[0])
-    missing_cols = [c for c in ITEMS_HEADER if c not in header_now]
-    if missing_cols:
-        header_now += missing_cols
-        ws_items.update("A1", [header_now])
+    # Antes de reescribir, guardamos las unidades ya compradas por id, para no
+    # perderlas si una fila sigue existiendo tras la sincronización.
+    compradas_by_id = {}
+    if items_values:
+        old_header = items_values[0]
+        if "id" in old_header and "compradas" in old_header:
+            id_i = old_header.index("id")
+            comp_i = old_header.index("compradas")
+            for row in items_values[1:]:
+                if id_i < len(row) and row[id_i].strip():
+                    val = row[comp_i] if comp_i < len(row) else 0
+                    compradas_by_id[row[id_i].strip()] = _to_int(val, default=0)
 
-    body_rows = items_values[1:]
-    existing_by_id = {}
-    for i, row in enumerate(body_rows, start=2):  # row 1 es la cabecera
-        rowdict = {header_now[j]: (row[j] if j < len(row) else "") for j in range(len(header_now))}
-        rid = rowdict.get("id", "").strip()
-        if rid:
-            existing_by_id[rid] = (i, rowdict)
-
-    def a1(row_idx, col_name):
-        return gspread.utils.rowcol_to_a1(row_idx, header_now.index(col_name) + 1)
-
-    cell_updates = []
-    new_rows = []
-    visible_ids = set()
-
+    # Reconstruimos APP_datos entero: cabecera + exactamente las filas marcadas
+    # como visibles en Hoja 1, en su mismo orden. Así APP_datos es siempre un
+    # reflejo limpio de la lista pública, sin filas viejas acumuladas. El
+    # histórico completo de compras vive aparte en APP_compras, de modo que
+    # esta reescritura nunca pierde información.
+    col = {name: i for i, name in enumerate(ITEMS_HEADER)}
+    out_rows = [list(ITEMS_HEADER)]
     for item in visible_rows:
-        visible_ids.add(item["id"])
-        if item["id"] in existing_by_id:
-            row_idx, _ = existing_by_id[item["id"]]
-            for field in ("seccion", "nombre", "detalle", "link", "precio", "necesarias"):
-                cell_updates.append({"range": a1(row_idx, field), "values": [[item[field]]]})
-            cell_updates.append({"range": a1(row_idx, "en_lista"), "values": [["sí"]]})
-        else:
-            new_row = [""] * len(header_now)
-            new_row[header_now.index("id")] = item["id"]
-            new_row[header_now.index("seccion")] = item["seccion"]
-            new_row[header_now.index("nombre")] = item["nombre"]
-            new_row[header_now.index("detalle")] = item["detalle"]
-            new_row[header_now.index("link")] = item["link"]
-            new_row[header_now.index("precio")] = item["precio"]
-            new_row[header_now.index("necesarias")] = item["necesarias"]
-            new_row[header_now.index("compradas")] = 0
-            new_row[header_now.index("en_lista")] = "sí"
-            new_rows.append(new_row)
+        row = [""] * len(ITEMS_HEADER)
+        row[col["id"]] = item["id"]
+        row[col["seccion"]] = item["seccion"]
+        row[col["nombre"]] = item["nombre"]
+        row[col["detalle"]] = item["detalle"]
+        row[col["link"]] = item["link"]
+        row[col["precio"]] = item["precio"]
+        row[col["necesarias"]] = item["necesarias"]
+        row[col["compradas"]] = compradas_by_id.get(item["id"], 0)
+        row[col["en_lista"]] = "sí"
+        out_rows.append(row)
 
-    # Lo que ya no está marcado como visible en Hoja 1 se oculta (no se borra,
-    # para no perder el historial de compras de esa fila).
-    for rid, (row_idx, rowdict) in existing_by_id.items():
-        if rid in visible_ids:
-            continue
-        current = str(rowdict.get("en_lista", "")).strip().lower()
-        if current in _VISIBLE_VALUES:
-            cell_updates.append({"range": a1(row_idx, "en_lista"), "values": [["no"]]})
-
-    if cell_updates:
-        ws_items.batch_update(cell_updates)
-    if new_rows:
-        ws_items.append_rows(new_rows)
+    ws_items.clear()
+    ws_items.update(out_rows, "A1")
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -303,8 +285,9 @@ def load_items():
         link = str(r.get("link", "")).strip()
         necesarias = _to_int(r.get("necesarias"), default=1) or 1
 
-        if precio <= 0 or not link:
-            continue  # not ready to be reserved yet (no precio/link todavía)
+        if precio <= 0:
+            continue  # sin precio todavía: aún no se puede reservar
+        # El link es opcional (hay regalos sin página concreta, como packs).
 
         items.append({
             "id": item_id,
@@ -404,10 +387,6 @@ st.markdown(
         padding:16px 18px; margin-bottom:14px;
       }
       .item-price { font-size:1.25rem; font-weight:800; }
-      .item-badge {
-        display:inline-block; font-size:0.75rem; font-weight:700;
-        color:#5C6B62; margin-bottom:4px;
-      }
       .item-pill {
         float:right; background:#EDF0E9; color:#5C6B62; border-radius:999px;
         padding:2px 10px; font-size:0.78rem; font-weight:700;
@@ -461,15 +440,32 @@ else:
         st.subheader(seccion)
         for item in section_items:
             left = remaining(item)
+            nombre_html = html.escape(item["nombre"])
+            # La descripción puede tener varias líneas (p.ej. "Incluye: ...");
+            # se escapan y los saltos de línea se convierten en <br>.
+            detalle_html = html.escape(item["detalle"]).replace("\n", "<br>")
+            detalle_block = (
+                f'<p style="color:#5C6B62; margin:0 0 8px 0;">{detalle_html}</p>'
+                if item["detalle"] else ""
+            )
+            necesita = item["necesarias"]
+            cantidad_pill = (
+                f'<span class="item-pill">Faltan {left} de {necesita}</span>'
+                if necesita > 1 else
+                f'<span class="item-pill">Falta{"n" if left != 1 else ""} {left}</span>'
+            )
+            link_block = (
+                f'<a href="{html.escape(item["link"])}" target="_blank">Ver producto ↗</a>'
+                if item["link"] else ""
+            )
             with st.container():
                 st.markdown(
                     f"""<div class="item-card">
-                    <span class="item-badge">{seccion}</span>
-                    <span class="item-pill">Falta{'n' if left != 1 else ''} {left}</span>
-                    <h4 style="margin:4px 0 2px 0;">{item['nombre']}</h4>
-                    <p style="color:#5C6B62; margin:0 0 8px 0;">{item['detalle']}</p>
+                    {cantidad_pill}
+                    <h4 style="margin:0 0 2px 0;">{nombre_html}</h4>
+                    {detalle_block}
                     <div class="item-price">{item['precio']:.2f} € <span style="font-size:0.8rem; font-weight:600; color:#5C6B62;">/ unidad</span></div>
-                    <a href="{item['link']}" target="_blank">Ver producto ↗</a>
+                    {link_block}
                     </div>""",
                     unsafe_allow_html=True,
                 )
