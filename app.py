@@ -91,12 +91,33 @@ def slugify(text, max_len=60):
 
 
 def _parse_precio_range(raw):
-    """'885 - 935' -> 885.0. También admite '9,99' o '9.99'."""
-    raw = str(raw).strip()
-    nums = re.findall(r"\d+(?:[.,]\d+)?", raw)
-    if not nums:
+    """Convierte un precio en float, tolerando el formato español.
+
+    - '15,99'  -> 15.99   (coma decimal)
+    - '29.99'  -> 29.99   (punto decimal)
+    - '1.234,56' -> 1234.56 (punto de miles + coma decimal)
+    - '885 - 935' -> 885.0  (se queda con el primer número)
+    - '369 + 69 + 49' -> 369.0
+
+    Ojo: es imprescindible interpretar bien la coma. La conversión
+    automática de Google/gspread trata '29,99' como 2999 (mil separadores),
+    de ahí que antes aparecieran "miles de euros"."""
+    m = re.search(r"\d[\d.,]*", str(raw))
+    if not m:
         return 0.0
-    return _to_float(nums[0])
+    tok = m.group(0)
+    if "." in tok and "," in tok:
+        # Están los dos: el ÚLTIMO que aparece es el separador decimal.
+        if tok.rfind(",") > tok.rfind("."):
+            tok = tok.replace(".", "").replace(",", ".")  # 1.234,56 -> 1234.56
+        else:
+            tok = tok.replace(",", "")                     # 1,234.56 -> 1234.56
+    elif "," in tok:
+        tok = tok.replace(",", ".")                        # 29,99 -> 29.99
+    try:
+        return float(tok)
+    except ValueError:
+        return 0.0
 
 
 def _first_line(text):
@@ -272,7 +293,10 @@ def _to_int(value, default=0):
 def load_items():
     ss = get_spreadsheet()
     ws = ss.worksheet(SHEET_ITEMS)
-    rows = ws.get_all_records()
+    # numericise_ignore=["all"]: leemos todo como texto tal cual. Si dejamos
+    # que gspread "numerice", convierte "29,99" en 2999 (interpreta la coma
+    # como separador de miles) y aparecían precios de miles de euros.
+    rows = ws.get_all_records(numericise_ignore=["all"])
     items = []
     for r in rows:
         item_id = str(r.get("id", "")).strip()
@@ -281,7 +305,7 @@ def load_items():
         if not _is_visible(r):
             continue  # marked as internal-only (en_lista != sí)
 
-        precio = _to_float(r.get("precio"))
+        precio = _parse_precio_range(r.get("precio"))
         link = str(r.get("link", "")).strip()
         necesarias = _to_int(r.get("necesarias"), default=1) or 1
 
@@ -328,7 +352,7 @@ def save_purchase(name, selection, items_by_id):
         return False, "Falta la columna 'compradas' en APP_datos. Avisa a Alfredo."
     compradas_col = header_row.index("compradas") + 1
 
-    records = ws_items.get_all_records()
+    records = ws_items.get_all_records(numericise_ignore=["all"])
     row_by_id = {}
     for idx, r in enumerate(records, start=2):  # row 1 is the header
         rid = str(r.get("id", "")).strip()
@@ -354,7 +378,7 @@ def save_purchase(name, selection, items_by_id):
                 f"Alguien se te ha adelantado con «{nombre}» hace un momento. "
                 "Recarga la página para ver lo que queda disponible."
             )
-        precio = _to_float(record.get("precio"))
+        precio = _parse_precio_range(record.get("precio"))
         purchase_rows.append([now, item_id, name, qty, round(qty * precio, 2)])
         updates.append((row_idx, compradas + qty))
 
