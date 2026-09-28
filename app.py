@@ -420,8 +420,11 @@ st.markdown(
         float:right; background:#EDF0E9; color:#5C6B62; border-radius:999px;
         padding:2px 10px; font-size:0.78rem; font-weight:700;
       }
-      /* Botones grandes y cómodos de pulsar, también desde el móvil. */
-      .stButton > button {
+      /* Botones grandes y cómodos de pulsar, también desde el móvil.
+         El ancho completo se fuerza aquí por CSS (en vez de con el antiguo
+         use_container_width, que Streamlit ha ido retirando). */
+      .stButton > button, .stFormSubmitButton > button {
+        width:100%;
         padding:0.7rem 1rem; font-size:1.05rem; font-weight:700;
         border-radius:12px; margin-top:-4px; margin-bottom:6px;
       }
@@ -516,24 +519,24 @@ def render_item(item):
                     key=f"qty_{iid}",
                 )
                 st.session_state.selection[iid] = qty
-                if st.button("Quitar", key=f"rm_{iid}", use_container_width=True):
+                if st.button("Quitar", key=f"rm_{iid}"):
                     st.session_state.selection.pop(iid, None)
                     st.rerun()
             else:
                 if st.button("🎁 Quiero regalar esto", type="primary",
-                             key=f"add_{iid}", use_container_width=True):
+                             key=f"add_{iid}"):
                     st.session_state.selection[iid] = 1
                     st.rerun()
         else:
             # Una sola unidad: un único botón que alterna seleccionar / quitar.
             if selected:
                 if st.button("✓ Vas a regalar esto · pulsa para quitar",
-                             key=f"btn_{iid}", use_container_width=True):
+                             key=f"btn_{iid}"):
                     st.session_state.selection.pop(iid, None)
                     st.rerun()
             else:
                 if st.button("🎁 Quiero regalar esto", type="primary",
-                             key=f"btn_{iid}", use_container_width=True):
+                             key=f"btn_{iid}"):
                     st.session_state.selection[iid] = 1
                     st.rerun()
 
@@ -577,7 +580,7 @@ if sel_count > 0:
     with col1:
         st.metric("Seleccionado", f"{sel_count} artículo{'s' if sel_count != 1 else ''}", f"{sel_total:.2f} €")
     with col2:
-        if st.button("Guardar selección", type="primary", use_container_width=True):
+        if st.button("Guardar selección", type="primary"):
             st.session_state.step = "confirm"
             st.rerun()
 
@@ -593,8 +596,8 @@ if st.session_state.step == "confirm" and sel_count > 0:
         st.write(f"**Total: {sel_total:.2f} €**")
         name = st.text_input("Tu nombre", placeholder="Por ejemplo: Tía Rosa")
         c1, c2 = st.columns(2)
-        cancel = c1.form_submit_button("Cancelar", use_container_width=True)
-        confirm = c2.form_submit_button("Confirmar y guardar", type="primary", use_container_width=True)
+        cancel = c1.form_submit_button("Cancelar")
+        confirm = c2.form_submit_button("Confirmar y guardar", type="primary")
 
         if cancel:
             st.session_state.step = "browse"
