@@ -403,14 +403,19 @@ st.set_page_config(page_title=f"Lista de {BABY_NAME}", page_icon="🎁", layout=
 st.markdown(
     """
     <style>
-      .stApp { background:#F5F6F0; }
+      /* Colores fijos: legibles tanto si el móvil está en claro como en
+         oscuro. Forzamos fondo claro y texto oscuro en toda la página. */
+      .stApp { background:#F5F6F0; color:#1F2A24; }
+      .stApp h1, .stApp h2, .stApp h3, .stApp h4,
+      .stApp p, .stApp label, .stApp li { color:#1F2A24; }
       div.block-container { max-width: 640px; padding-top: 2rem; }
       h1 { font-size: 2rem !important; }
       .item-card {
         background:#FFFFFF; border:1px solid #DCE3DA; border-radius:16px;
-        padding:16px 18px; margin-bottom:14px;
+        padding:16px 18px; margin-bottom:14px; color:#1F2A24;
       }
-      .item-price { font-size:1.25rem; font-weight:800; }
+      .item-card h4 { color:#1F2A24; }
+      .item-price { font-size:1.25rem; font-weight:800; color:#1F2A24; }
       .item-pill {
         float:right; background:#EDF0E9; color:#5C6B62; border-radius:999px;
         padding:2px 10px; font-size:0.78rem; font-weight:700;

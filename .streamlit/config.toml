@@ -1,0 +1,8 @@
+# Tema FIJO para toda la web. Así se ve igual para todos, tengan el móvil
+# en modo claro u oscuro: nunca hay que tocar ningún ajuste de Streamlit.
+[theme]
+base = "light"
+primaryColor = "#4F8A5B"            # verde de los botones "regalar"
+backgroundColor = "#F5F6F0"         # fondo salvia claro
+secondaryBackgroundColor = "#FFFFFF"  # tarjetas, campos de texto
+textColor = "#1F2A24"               # texto oscuro, legible sobre lo claro
