@@ -341,57 +341,71 @@ def group_by_section(items):
 
 
 def save_purchase(name, selection, items_by_id):
-    """Re-reads the sheet, checks availability again, writes the purchase
-    and updates the counters. Returns (ok, message)."""
-    ss = get_spreadsheet()
-    ws_items = ss.worksheet(SHEET_ITEMS)
-    ws_purch = ss.worksheet(SHEET_PURCHASES)
+    """Comprueba disponibilidad, registra SIEMPRE primero la compra (quién ha
+    comprado qué) y solo después descuenta las unidades. Así, si algo falla a
+    medias, nunca desaparece un artículo sin que quede su registro. Devuelve
+    (ok, mensaje) y captura cualquier error para mostrarlo en pantalla en vez
+    de romper la página."""
+    try:
+        ss = get_spreadsheet()
+        ws_items = ss.worksheet(SHEET_ITEMS)
+        ws_purch = ss.worksheet(SHEET_PURCHASES)
 
-    header_row = ws_items.row_values(1)
-    if "compradas" not in header_row:
-        return False, "Falta la columna 'compradas' en APP_datos. Avisa a Alfredo."
-    compradas_col = header_row.index("compradas") + 1
+        header_row = ws_items.row_values(1)
+        if "compradas" not in header_row:
+            return False, "Falta la columna 'compradas' en APP_datos. Avisa a Alfredo."
+        compradas_col = header_row.index("compradas") + 1
 
-    records = ws_items.get_all_records(numericise_ignore=["all"])
-    row_by_id = {}
-    for idx, r in enumerate(records, start=2):  # row 1 is the header
-        rid = str(r.get("id", "")).strip()
-        if rid:
-            row_by_id[rid] = (idx, r)
+        records = ws_items.get_all_records(numericise_ignore=["all"])
+        row_by_id = {}
+        for idx, r in enumerate(records, start=2):  # row 1 is the header
+            rid = str(r.get("id", "")).strip()
+            if rid:
+                row_by_id[rid] = (idx, r)
 
-    now = dt.datetime.now().isoformat(timespec="seconds")
-    purchase_rows = []
-    updates = []
+        now = dt.datetime.now().isoformat(timespec="seconds")
+        purchase_rows = []
+        updates = []
 
-    for item_id, qty in selection.items():
-        if qty <= 0:
-            continue
-        if item_id not in row_by_id:
-            return False, "Uno de los artículos ya no existe. Recarga la página e inténtalo de nuevo."
-        row_idx, record = row_by_id[item_id]
-        necesarias = _to_int(record.get("necesarias"), default=1) or 1
-        compradas = _to_int(record.get("compradas"), default=0)
-        left = necesarias - compradas
-        if qty > left:
-            nombre = items_by_id.get(item_id, {}).get("nombre", item_id)
-            return False, (
-                f"Alguien se te ha adelantado con «{nombre}» hace un momento. "
-                "Recarga la página para ver lo que queda disponible."
-            )
-        precio = _parse_precio_range(record.get("precio"))
-        purchase_rows.append([now, item_id, name, qty, round(qty * precio, 2)])
-        updates.append((row_idx, compradas + qty))
+        for item_id, qty in selection.items():
+            qty = _to_int(qty, default=0)
+            if qty <= 0:
+                continue
+            if item_id not in row_by_id:
+                return False, "Uno de los artículos ya no existe. Recarga la página e inténtalo de nuevo."
+            row_idx, record = row_by_id[item_id]
+            necesarias = _to_int(record.get("necesarias"), default=1) or 1
+            compradas = _to_int(record.get("compradas"), default=0)
+            left = necesarias - compradas
+            if qty > left:
+                nombre = items_by_id.get(item_id, {}).get("nombre", item_id)
+                return False, (
+                    f"Alguien se te ha adelantado con «{nombre}» hace un momento. "
+                    "Recarga la página para ver lo que queda disponible."
+                )
+            precio = _parse_precio_range(record.get("precio"))
+            purchase_rows.append([now, item_id, name, qty, round(qty * precio, 2)])
+            updates.append((row_idx, compradas + qty))
 
-    if not purchase_rows:
-        return False, "No se ha seleccionado ningún artículo."
+        if not purchase_rows:
+            return False, "No se ha seleccionado ningún artículo."
 
-    for row_idx, new_compradas in updates:
-        ws_items.update_cell(row_idx, compradas_col, new_compradas)
+        # 1) Lo primero e imprescindible: registrar la compra (quién, qué,
+        #    cuánto). Si esto falla, no se toca nada más.
+        ws_purch.append_rows(purchase_rows, value_input_option="USER_ENTERED")
 
-    ws_purch.append_rows(purchase_rows)
+        # 2) Ya con la compra a salvo, descontamos las unidades disponibles.
+        for row_idx, new_compradas in updates:
+            ws_items.update_cell(row_idx, compradas_col, new_compradas)
 
-    load_items.clear()
-    return True, "ok"
+        load_items.clear()
+        return True, "ok"
+    except Exception as exc:  # noqa: BLE001 — queremos avisar, no romper
+        return False, (
+            "No se ha podido guardar en este momento "
+            f"({type(exc).__name__}). Espera unos segundos y vuelve a "
+            "intentarlo. Si sigue fallando, avisa a Alfredo."
+        )
 
 
 # --------------------------------------------------------------------------
