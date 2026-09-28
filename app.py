@@ -448,12 +448,14 @@ st.write(
     "Elige lo que quieras regalarle: en cuanto alguien lo reserva, desaparece "
     "de la lista para que nadie lo repita."
 )
-with st.expander("¿Cómo funciona?", expanded=False):
-    st.markdown(
-        "1. Marca lo que te apetezca regalar.\n"
-        "2. Baja hasta el final y pulsa **Guardar selección**.\n"
-        "3. Escribe tu nombre y confirma. ¡Y ya está!"
-    )
+st.markdown("#### ¿Cómo funciona?")
+st.markdown(
+    "1. Marca lo que te apetezca regalar.\n"
+    "2. Baja hasta el final y pulsa **Guardar selección**.\n"
+    "3. Escribe tu nombre y confirma.\n"
+    "4. Haznos un ingreso por el importe al número de cuenta "
+    "**ES70 2095 5308 3091 2564 9315**. ¡Y ya está!"
+)
 
 if st.session_state.banner:
     b = st.session_state.banner
