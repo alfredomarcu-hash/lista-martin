@@ -391,6 +391,11 @@ st.markdown(
         float:right; background:#EDF0E9; color:#5C6B62; border-radius:999px;
         padding:2px 10px; font-size:0.78rem; font-weight:700;
       }
+      /* Botones grandes y cómodos de pulsar, también desde el móvil. */
+      .stButton > button {
+        padding:0.7rem 1rem; font-size:1.05rem; font-weight:700;
+        border-radius:12px; margin-top:-4px; margin-bottom:6px;
+      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -444,50 +449,52 @@ else:
             # La descripción puede tener varias líneas (p.ej. "Incluye: ...");
             # se escapan y los saltos de línea se convierten en <br>.
             detalle_html = html.escape(item["detalle"]).replace("\n", "<br>")
-            detalle_block = (
-                f'<p style="color:#5C6B62; margin:0 0 8px 0;">{detalle_html}</p>'
-                if item["detalle"] else ""
-            )
             necesita = item["necesarias"]
             cantidad_pill = (
                 f'<span class="item-pill">Faltan {left} de {necesita}</span>'
                 if necesita > 1 else
                 f'<span class="item-pill">Falta{"n" if left != 1 else ""} {left}</span>'
             )
-            link_block = (
-                f'<a href="{html.escape(item["link"])}" target="_blank">Ver producto ↗</a>'
-                if item["link"] else ""
+            # Se construye el HTML uniendo solo las partes que existen, sin
+            # sangría: así, cuando falta la descripción o el enlace, no queda
+            # ninguna línea vacía (que Streamlit interpretaría como un bloque
+            # de código gris, el "campo vacío" que parecía un error).
+            card = ['<div class="item-card">', cantidad_pill,
+                    f'<h4 style="margin:0 0 2px 0;">{nombre_html}</h4>']
+            if item["detalle"]:
+                card.append(f'<p style="color:#5C6B62; margin:0 0 8px 0;">{detalle_html}</p>')
+            card.append(
+                f'<div class="item-price">{item["precio"]:.2f} € '
+                '<span style="font-size:0.8rem; font-weight:600; color:#5C6B62;">/ unidad</span></div>'
             )
-            with st.container():
-                st.markdown(
-                    f"""<div class="item-card">
-                    {cantidad_pill}
-                    <h4 style="margin:0 0 2px 0;">{nombre_html}</h4>
-                    {detalle_block}
-                    <div class="item-price">{item['precio']:.2f} € <span style="font-size:0.8rem; font-weight:600; color:#5C6B62;">/ unidad</span></div>
-                    {link_block}
-                    </div>""",
-                    unsafe_allow_html=True,
+            if item["link"]:
+                card.append(
+                    f'<a href="{html.escape(item["link"])}" target="_blank">Ver producto ↗</a>'
                 )
+            card.append("</div>")
+            with st.container():
+                st.markdown("".join(card), unsafe_allow_html=True)
                 if item["necesarias"] > 1:
                     qty = st.number_input(
-                        "Cuántos quieres regalar",
-                        min_value=0, max_value=left, value=st.session_state.selection.get(item["id"], 0),
-                        key=f"qty_{item['id']}", label_visibility="collapsed",
+                        "¿Cuántas unidades quieres regalar?",
+                        min_value=0, max_value=left,
+                        value=st.session_state.selection.get(item["id"], 0),
+                        key=f"qty_{item['id']}",
                     )
                     if qty > 0:
                         st.session_state.selection[item["id"]] = qty
                     else:
                         st.session_state.selection.pop(item["id"], None)
-                else:
-                    checked = st.checkbox(
-                        "Quiero regalar esto", value=item["id"] in st.session_state.selection,
-                        key=f"chk_{item['id']}",
-                    )
-                    if checked:
-                        st.session_state.selection[item["id"]] = 1
-                    else:
+                elif item["id"] in st.session_state.selection:
+                    if st.button("✓ Vas a regalar esto · pulsa para quitar",
+                                 key=f"btn_{item['id']}", use_container_width=True):
                         st.session_state.selection.pop(item["id"], None)
+                        st.rerun()
+                else:
+                    if st.button("🎁 Quiero regalar esto", type="primary",
+                                 key=f"btn_{item['id']}", use_container_width=True):
+                        st.session_state.selection[item["id"]] = 1
+                        st.rerun()
 
 selection = {k: v for k, v in st.session_state.selection.items() if v > 0}
 sel_count = sum(selection.values())
