@@ -479,16 +479,6 @@ st.markdown(
     "aportación y os prometemos enviaros una foto con lo que nos habéis regalado. 💛"
 )
 
-if st.session_state.banner:
-    b = st.session_state.banner
-    st.success(
-        f"¡Gracias, {b['name']}! Hemos guardado tu selección de {b['count']} "
-        f"artículo{'s' if b['count'] != 1 else ''} por {b['total']:.2f} €."
-    )
-    if st.button("Vale, entendido"):
-        st.session_state.banner = None
-        st.rerun()
-
 def render_item(item):
     """Dibuja la tarjeta de un artículo y su control para regalarlo."""
     left = remaining(item)
@@ -630,3 +620,29 @@ if st.session_state.step == "confirm" and sel_count > 0:
                     st.rerun()
                 else:
                     st.error(msg)
+
+
+def _thanks_body(b):
+    st.success(
+        f"¡Gracias, {b['name']}! Hemos guardado tu selección de {b['count']} "
+        f"artículo{'s' if b['count'] != 1 else ''} por {b['total']:.2f} €."
+    )
+    st.write(
+        f"Ya solo falta hacernos el ingreso de **{b['total']:.2f} €** al número de cuenta "
+        "**ES70 2095 5308 3091 2564 9315**. ¡Muchísimas gracias! 💛"
+    )
+
+
+if st.session_state.banner:
+    # Se consume aquí para que el aviso salga una sola vez.
+    _b = st.session_state.banner
+    st.session_state.banner = None
+    if hasattr(st, "dialog"):
+        @st.dialog("¡Selección guardada!")
+        def _thanks_dialog():
+            _thanks_body(_b)
+            if st.button("Vale, entendido", type="primary"):
+                st.rerun()
+        _thanks_dialog()
+    else:
+        _thanks_body(_b)
